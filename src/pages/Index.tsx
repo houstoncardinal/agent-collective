@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import {
   Brain,
   Code,
@@ -9,12 +9,15 @@ import {
   Palette,
   Shield,
 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 import { GridBackground } from "@/components/GridBackground";
 import { HeroSection } from "@/components/HeroSection";
 import { CommandInput } from "@/components/CommandInput";
 import { AgentCard, AgentStatus } from "@/components/AgentCard";
 import { ActivityFeed, Activity } from "@/components/ActivityFeed";
 import { StatsPanel } from "@/components/StatsPanel";
+import { ResultsPanel, AgentResult } from "@/components/ResultsPanel";
 import { motion } from "framer-motion";
 
 interface Agent {
@@ -38,22 +41,15 @@ const initialAgents: Agent[] = [
   { id: "8", name: "WARD", role: "Security Auditor", icon: Shield, status: "idle", progress: 0 },
 ];
 
-const taskAssignments: Record<string, string[]> = {
-  "1": ["analyzing mission parameters", "creating execution roadmap", "optimizing resource allocation"],
-  "2": ["architecting solution", "implementing core logic", "running test suites"],
-  "3": ["drafting content strategy", "writing copy", "refining messaging"],
-  "4": ["gathering intelligence", "analyzing competitors", "synthesizing insights"],
-  "5": ["developing campaign strategy", "identifying target audience", "crafting messaging"],
-  "6": ["processing datasets", "generating visualizations", "extracting insights"],
-  "7": ["creating visual concepts", "designing interfaces", "refining aesthetics"],
-  "8": ["scanning for vulnerabilities", "auditing permissions", "generating security report"],
-};
-
 const Index = () => {
+  const { toast } = useToast();
   const [agents, setAgents] = useState<Agent[]>(initialAgents);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [completedTasks, setCompletedTasks] = useState(0);
+  const [results, setResults] = useState<AgentResult[]>([]);
+  const [showResults, setShowResults] = useState(false);
+  const [currentMission, setCurrentMission] = useState("");
 
   const activeAgents = agents.filter((a) => a.status === "active").length;
 
@@ -68,58 +64,72 @@ const Index = () => {
     setActivities((prev) => [newActivity, ...prev].slice(0, 20));
   }, []);
 
-  const simulateAgentWork = useCallback(
-    (agentId: string, task: string) => {
-      const agent = initialAgents.find((a) => a.id === agentId);
-      if (!agent) return;
-
-      const tasks = taskAssignments[agentId];
-      let currentTaskIndex = 0;
-
-      // Start working
+  const executeAgentTask = useCallback(
+    async (agentId: string, agentName: string, agentRole: string, mission: string) => {
+      // Set agent to active
       setAgents((prev) =>
         prev.map((a) =>
-          a.id === agentId ? { ...a, status: "active" as AgentStatus, progress: 0, task } : a
+          a.id === agentId ? { ...a, status: "active" as AgentStatus, progress: 10, task: mission } : a
         )
       );
-      addActivity(agent.name, `started working on: "${task}"`, "processing");
+      addActivity(agentName, `started working on mission`, "processing");
 
-      // Progress updates
+      // Simulate progress while waiting for AI
       const progressInterval = setInterval(() => {
-        setAgents((prev) => {
-          const current = prev.find((a) => a.id === agentId);
-          if (!current || current.status !== "active") {
-            clearInterval(progressInterval);
-            return prev;
-          }
+        setAgents((prev) =>
+          prev.map((a) => {
+            if (a.id === agentId && a.status === "active" && a.progress < 85) {
+              return { ...a, progress: a.progress + Math.random() * 10 };
+            }
+            return a;
+          })
+        );
+      }, 500);
 
-          const newProgress = Math.min(current.progress + Math.random() * 15 + 5, 100);
-
-          // Log intermediate tasks
-          if (newProgress > (currentTaskIndex + 1) * 33 && currentTaskIndex < tasks.length) {
-            addActivity(agent.name, tasks[currentTaskIndex], "info");
-            currentTaskIndex++;
-          }
-
-          if (newProgress >= 100) {
-            clearInterval(progressInterval);
-            addActivity(agent.name, "completed task successfully", "success");
-            setCompletedTasks((prev) => prev + 1);
-            return prev.map((a) =>
-              a.id === agentId ? { ...a, status: "completed" as AgentStatus, progress: 100 } : a
-            );
-          }
-
-          return prev.map((a) => (a.id === agentId ? { ...a, progress: newProgress } : a));
+      try {
+        const { data, error } = await supabase.functions.invoke("agent-task", {
+          body: { agentId, agentName, agentRole, mission },
         });
-      }, 800);
+
+        clearInterval(progressInterval);
+
+        if (error) throw error;
+
+        if (data.success) {
+          setAgents((prev) =>
+            prev.map((a) =>
+              a.id === agentId ? { ...a, status: "completed" as AgentStatus, progress: 100 } : a
+            )
+          );
+          addActivity(agentName, "completed task successfully", "success");
+          setCompletedTasks((prev) => prev + 1);
+
+          setResults((prev) => [
+            ...prev,
+            { agentId, agentName, result: data.result },
+          ]);
+        } else {
+          throw new Error(data.error || "Unknown error");
+        }
+      } catch (error) {
+        clearInterval(progressInterval);
+        console.error(`Agent ${agentName} error:`, error);
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.id === agentId ? { ...a, status: "error" as AgentStatus, progress: 0 } : a
+          )
+        );
+        addActivity(agentName, `encountered an error`, "error");
+      }
     },
     [addActivity]
   );
 
   const handleCommand = useCallback(
-    (command: string) => {
+    async (command: string) => {
       setIsProcessing(true);
+      setCurrentMission(command);
+      setResults([]);
 
       // Reset all agents
       setAgents(initialAgents);
@@ -131,7 +141,7 @@ const Index = () => {
 
       if (commandLower.includes("market") || commandLower.includes("campaign") || commandLower.includes("launch")) {
         agentsToActivate = ["1", "3", "5", "7"];
-      } else if (commandLower.includes("code") || commandLower.includes("build") || commandLower.includes("develop")) {
+      } else if (commandLower.includes("code") || commandLower.includes("build") || commandLower.includes("develop") || commandLower.includes("app")) {
         agentsToActivate = ["1", "2", "7", "8"];
       } else if (commandLower.includes("research") || commandLower.includes("analyze") || commandLower.includes("data")) {
         agentsToActivate = ["1", "4", "6"];
@@ -142,19 +152,33 @@ const Index = () => {
         agentsToActivate = ["1", "2", "3", "4", "5", "6", "7", "8"];
       }
 
-      // Stagger agent activation
-      agentsToActivate.forEach((id, index) => {
-        setTimeout(() => {
-          simulateAgentWork(id, command);
-        }, index * 400);
+      // Execute all agents in parallel with staggered starts
+      const promises = agentsToActivate.map((id, index) => {
+        const agent = initialAgents.find((a) => a.id === id);
+        if (!agent) return Promise.resolve();
+
+        return new Promise<void>((resolve) => {
+          setTimeout(async () => {
+            await executeAgentTask(id, agent.name, agent.role, command);
+            resolve();
+          }, index * 300);
+        });
       });
 
-      // End processing state
+      await Promise.all(promises);
+
+      setIsProcessing(false);
+      
+      // Show results after all agents complete
       setTimeout(() => {
-        setIsProcessing(false);
-      }, agentsToActivate.length * 400 + 500);
+        setShowResults(true);
+        toast({
+          title: "Mission Complete",
+          description: `${agentsToActivate.length} agents have completed their tasks.`,
+        });
+      }, 500);
     },
-    [addActivity, simulateAgentWork]
+    [addActivity, executeAgentTask, toast]
   );
 
   return (
@@ -231,10 +255,18 @@ const Index = () => {
           className="mt-16 pb-8 text-center"
         >
           <p className="text-muted-foreground text-sm">
-            AI Agent Workforce Platform • Multi-agent orchestration at your command
+            AI Agent Workforce Platform • Powered by OpenAI GPT-4
           </p>
         </motion.footer>
       </div>
+
+      {/* Results Panel */}
+      <ResultsPanel
+        results={results}
+        isOpen={showResults}
+        onClose={() => setShowResults(false)}
+        mission={currentMission}
+      />
     </div>
   );
 };
