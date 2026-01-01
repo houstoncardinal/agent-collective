@@ -1,6 +1,13 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Bot, CheckCircle } from "lucide-react";
+import { X, Bot, CheckCircle, Download, FileText, FileJson } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { downloadMarkdown, exportToPDF } from "@/lib/exportUtils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export interface AgentResult {
   agentId: string;
@@ -13,10 +20,33 @@ interface ResultsPanelProps {
   isOpen: boolean;
   onClose: () => void;
   mission: string;
+  onSave?: () => void;
+  isSaved?: boolean;
 }
 
-export const ResultsPanel = ({ results, isOpen, onClose, mission }: ResultsPanelProps) => {
+export const ResultsPanel = ({
+  results,
+  isOpen,
+  onClose,
+  mission,
+  onSave,
+  isSaved,
+}: ResultsPanelProps) => {
   if (!isOpen) return null;
+
+  const handleExport = (format: "pdf" | "markdown") => {
+    const exportData = {
+      mission,
+      results,
+      completedAt: new Date(),
+    };
+
+    if (format === "pdf") {
+      exportToPDF(exportData);
+    } else {
+      downloadMarkdown(exportData);
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -46,9 +76,41 @@ export const ResultsPanel = ({ results, isOpen, onClose, mission }: ResultsPanel
                 <p className="text-sm text-muted-foreground line-clamp-1">"{mission}"</p>
               </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={onClose}>
-              <X className="w-5 h-5" />
-            </Button>
+            <div className="flex items-center gap-2">
+              {onSave && !isSaved && (
+                <Button variant="outline" size="sm" onClick={onSave}>
+                  <FileText className="w-4 h-4 mr-2" />
+                  Save to History
+                </Button>
+              )}
+              {isSaved && (
+                <span className="text-xs text-glow-success flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" />
+                  Saved
+                </span>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Download className="w-4 h-4 mr-2" />
+                    Export
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onClick={() => handleExport("pdf")}>
+                    <FileText className="w-4 h-4 mr-2" />
+                    Export as PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExport("markdown")}>
+                    <FileJson className="w-4 h-4 mr-2" />
+                    Export as Markdown
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button variant="ghost" size="icon" onClick={onClose}>
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
           </div>
 
           {/* Results */}

@@ -1,14 +1,5 @@
 import { useState, useCallback } from "react";
-import {
-  Brain,
-  Code,
-  FileText,
-  Search,
-  Megaphone,
-  BarChart,
-  Palette,
-  Shield,
-} from "lucide-react";
+import { Plus, History, Settings } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { GridBackground } from "@/components/GridBackground";
@@ -18,38 +9,30 @@ import { AgentCard, AgentStatus } from "@/components/AgentCard";
 import { ActivityFeed, Activity } from "@/components/ActivityFeed";
 import { StatsPanel } from "@/components/StatsPanel";
 import { ResultsPanel, AgentResult } from "@/components/ResultsPanel";
+import { MissionHistoryPanel } from "@/components/MissionHistoryPanel";
+import { AgentSettingsDialog } from "@/components/AgentSettingsDialog";
+import { CreateAgentDialog } from "@/components/CreateAgentDialog";
+import { useAgents, defaultAgents, Agent, CustomAgentData } from "@/hooks/useAgents";
+import { useMissions, Mission } from "@/hooks/useMissions";
+import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-
-interface Agent {
-  id: string;
-  name: string;
-  role: string;
-  icon: typeof Brain;
-  status: AgentStatus;
-  progress: number;
-  task?: string;
-}
-
-const initialAgents: Agent[] = [
-  { id: "1", name: "ARIA", role: "Strategic Planner", icon: Brain, status: "idle", progress: 0 },
-  { id: "2", name: "CODA", role: "Code Architect", icon: Code, status: "idle", progress: 0 },
-  { id: "3", name: "DOXA", role: "Content Writer", icon: FileText, status: "idle", progress: 0 },
-  { id: "4", name: "SEEK", role: "Research Analyst", icon: Search, status: "idle", progress: 0 },
-  { id: "5", name: "VEGA", role: "Marketing Strategist", icon: Megaphone, status: "idle", progress: 0 },
-  { id: "6", name: "FLUX", role: "Data Analyst", icon: BarChart, status: "idle", progress: 0 },
-  { id: "7", name: "PIXL", role: "Design Director", icon: Palette, status: "idle", progress: 0 },
-  { id: "8", name: "WARD", role: "Security Auditor", icon: Shield, status: "idle", progress: 0 },
-];
 
 const Index = () => {
   const { toast } = useToast();
-  const [agents, setAgents] = useState<Agent[]>(initialAgents);
+  const { agents, setAgents, agentSettings, saveAgentSettings, createCustomAgent, resetAgents } = useAgents();
+  const { missions, saveMission } = useMissions();
+  
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [completedTasks, setCompletedTasks] = useState(0);
   const [results, setResults] = useState<AgentResult[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [currentMission, setCurrentMission] = useState("");
+  const [isSaved, setIsSaved] = useState(false);
+  
+  const [showHistory, setShowHistory] = useState(false);
+  const [showCreateAgent, setShowCreateAgent] = useState(false);
+  const [settingsAgent, setSettingsAgent] = useState<{ id: string; name: string } | null>(null);
 
   const activeAgents = agents.filter((a) => a.status === "active").length;
 
@@ -65,20 +48,18 @@ const Index = () => {
   }, []);
 
   const executeAgentTask = useCallback(
-    async (agentId: string, agentName: string, agentRole: string, mission: string) => {
-      // Set agent to active
+    async (agent: Agent, mission: string) => {
       setAgents((prev) =>
         prev.map((a) =>
-          a.id === agentId ? { ...a, status: "active" as AgentStatus, progress: 10, task: mission } : a
+          a.id === agent.id ? { ...a, status: "active" as AgentStatus, progress: 10, task: mission } : a
         )
       );
-      addActivity(agentName, `started working on mission`, "processing");
+      addActivity(agent.name, `started working on mission`, "processing");
 
-      // Simulate progress while waiting for AI
       const progressInterval = setInterval(() => {
         setAgents((prev) =>
           prev.map((a) => {
-            if (a.id === agentId && a.status === "active" && a.progress < 85) {
+            if (a.id === agent.id && a.status === "active" && a.progress < 85) {
               return { ...a, progress: a.progress + Math.random() * 10 };
             }
             return a;
@@ -87,8 +68,18 @@ const Index = () => {
       }, 500);
 
       try {
+        const settings = agentSettings.get(agent.id);
         const { data, error } = await supabase.functions.invoke("agent-task", {
-          body: { agentId, agentName, agentRole, mission },
+          body: {
+            agentId: agent.id,
+            agentName: agent.name,
+            agentRole: agent.role,
+            mission,
+            customPrompt: settings?.customPrompt || agent.systemPrompt,
+            temperature: settings?.temperature || agent.temperature || 0.7,
+            maxTokens: settings?.maxTokens || agent.maxTokens || 300,
+            isCustom: agent.isCustom,
+          },
         });
 
         clearInterval(progressInterval);
@@ -98,31 +89,25 @@ const Index = () => {
         if (data.success) {
           setAgents((prev) =>
             prev.map((a) =>
-              a.id === agentId ? { ...a, status: "completed" as AgentStatus, progress: 100 } : a
+              a.id === agent.id ? { ...a, status: "completed" as AgentStatus, progress: 100 } : a
             )
           );
-          addActivity(agentName, "completed task successfully", "success");
+          addActivity(agent.name, "completed task successfully", "success");
           setCompletedTasks((prev) => prev + 1);
-
-          setResults((prev) => [
-            ...prev,
-            { agentId, agentName, result: data.result },
-          ]);
+          setResults((prev) => [...prev, { agentId: agent.id, agentName: agent.name, result: data.result }]);
         } else {
           throw new Error(data.error || "Unknown error");
         }
       } catch (error) {
         clearInterval(progressInterval);
-        console.error(`Agent ${agentName} error:`, error);
+        console.error(`Agent ${agent.name} error:`, error);
         setAgents((prev) =>
-          prev.map((a) =>
-            a.id === agentId ? { ...a, status: "error" as AgentStatus, progress: 0 } : a
-          )
+          prev.map((a) => (a.id === agent.id ? { ...a, status: "error" as AgentStatus, progress: 0 } : a))
         );
-        addActivity(agentName, `encountered an error`, "error");
+        addActivity(agent.name, `encountered an error`, "error");
       }
     },
-    [addActivity]
+    [addActivity, agentSettings, setAgents]
   );
 
   const handleCommand = useCallback(
@@ -130,97 +115,109 @@ const Index = () => {
       setIsProcessing(true);
       setCurrentMission(command);
       setResults([]);
-
-      // Reset all agents
-      setAgents(initialAgents);
+      setIsSaved(false);
+      resetAgents();
       addActivity("SYSTEM", `New mission received: "${command}"`, "info");
 
-      // Determine which agents to activate based on command
       const commandLower = command.toLowerCase();
-      let agentsToActivate: string[] = [];
+      let agentIdsToActivate: string[] = [];
 
       if (commandLower.includes("market") || commandLower.includes("campaign") || commandLower.includes("launch")) {
-        agentsToActivate = ["1", "3", "5", "7"];
-      } else if (commandLower.includes("code") || commandLower.includes("build") || commandLower.includes("develop") || commandLower.includes("app")) {
-        agentsToActivate = ["1", "2", "7", "8"];
+        agentIdsToActivate = ["1", "3", "5", "7"];
+      } else if (commandLower.includes("code") || commandLower.includes("build") || commandLower.includes("develop")) {
+        agentIdsToActivate = ["1", "2", "7", "8"];
       } else if (commandLower.includes("research") || commandLower.includes("analyze") || commandLower.includes("data")) {
-        agentsToActivate = ["1", "4", "6"];
+        agentIdsToActivate = ["1", "4", "6"];
       } else if (commandLower.includes("content") || commandLower.includes("write") || commandLower.includes("blog")) {
-        agentsToActivate = ["1", "3", "4"];
+        agentIdsToActivate = ["1", "3", "4"];
       } else {
-        // Default: activate all agents
-        agentsToActivate = ["1", "2", "3", "4", "5", "6", "7", "8"];
+        agentIdsToActivate = agents.map((a) => a.id);
       }
 
-      // Execute all agents in parallel with staggered starts
-      const promises = agentsToActivate.map((id, index) => {
-        const agent = initialAgents.find((a) => a.id === id);
-        if (!agent) return Promise.resolve();
+      const agentsToActivate = agents.filter(
+        (a) => agentIdsToActivate.includes(a.id) && (agentSettings.get(a.id)?.isEnabled ?? true)
+      );
 
+      const promises = agentsToActivate.map((agent, index) => {
         return new Promise<void>((resolve) => {
           setTimeout(async () => {
-            await executeAgentTask(id, agent.name, agent.role, command);
+            await executeAgentTask(agent, command);
             resolve();
           }, index * 300);
         });
       });
 
       await Promise.all(promises);
-
       setIsProcessing(false);
-      
-      // Show results after all agents complete
+
       setTimeout(() => {
         setShowResults(true);
-        toast({
-          title: "Mission Complete",
-          description: `${agentsToActivate.length} agents have completed their tasks.`,
-        });
+        toast({ title: "Mission Complete", description: `${agentsToActivate.length} agents have completed their tasks.` });
       }, 500);
     },
-    [addActivity, executeAgentTask, toast]
+    [addActivity, executeAgentTask, agents, agentSettings, resetAgents, toast]
   );
+
+  const handleSaveMission = async () => {
+    if (results.length > 0 && currentMission) {
+      await saveMission(currentMission, results);
+      setIsSaved(true);
+      toast({ title: "Mission Saved", description: "You can find it in your mission history." });
+    }
+  };
+
+  const handleRerunMission = (mission: Mission) => {
+    setShowHistory(false);
+    handleCommand(mission.missionText);
+  };
+
+  const handleViewMission = (mission: Mission) => {
+    setResults(mission.results);
+    setCurrentMission(mission.missionText);
+    setIsSaved(true);
+    setShowResults(true);
+    setShowHistory(false);
+  };
+
+  const handleCreateAgent = async (agentData: CustomAgentData) => {
+    await createCustomAgent(agentData);
+    toast({ title: "Agent Created", description: `${agentData.name} is ready for missions.` });
+  };
+
+  const handleSaveAgentSettings = async (settings: any) => {
+    await saveAgentSettings(settings.agentId, settings);
+    toast({ title: "Settings Saved", description: "Agent configuration updated." });
+  };
 
   return (
     <div className="min-h-screen relative">
       <GridBackground />
-
       <div className="container mx-auto px-4 py-8 relative z-10">
-        {/* Header */}
         <HeroSection />
 
-        {/* Command Input */}
-        <CommandInput onSubmit={handleCommand} isProcessing={isProcessing} />
-
-        {/* Stats Panel */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          className="mt-12"
-        >
-          <StatsPanel
-            totalAgents={agents.length}
-            activeAgents={activeAgents}
-            completedTasks={completedTasks}
-            avgTime="2.4s"
-          />
+        {/* Action Buttons */}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="flex justify-center gap-3 mb-8">
+          <Button variant="outline" onClick={() => setShowHistory(true)}>
+            <History className="w-4 h-4 mr-2" />
+            Mission History
+          </Button>
+          <Button variant="outline" onClick={() => setShowCreateAgent(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Create Agent
+          </Button>
         </motion.div>
 
-        {/* Main Content Grid */}
+        <CommandInput onSubmit={handleCommand} isProcessing={isProcessing} />
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="mt-12">
+          <StatsPanel totalAgents={agents.length} activeAgents={activeAgents} completedTasks={completedTasks} avgTime="2.4s" />
+        </motion.div>
+
         <div className="grid lg:grid-cols-3 gap-8 mt-8">
-          {/* Agent Grid */}
           <div className="lg:col-span-2">
-            <motion.h2
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.5 }}
-              className="font-display text-xl font-semibold text-foreground mb-6 flex items-center gap-2"
-            >
+            <motion.h2 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="font-display text-xl font-semibold text-foreground mb-6 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
               Agent Workforce
             </motion.h2>
-
             <div className="grid sm:grid-cols-2 gap-4">
               {agents.map((agent, index) => (
                 <AgentCard
@@ -232,41 +229,35 @@ const Index = () => {
                   progress={agent.progress}
                   task={agent.task}
                   delay={0.6 + index * 0.05}
+                  isCustom={agent.isCustom}
+                  onSettings={() => setSettingsAgent({ id: agent.id, name: agent.name })}
                 />
               ))}
             </div>
           </div>
-
-          {/* Activity Feed */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.7 }}
-          >
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.7 }}>
             <ActivityFeed activities={activities} />
           </motion.div>
         </div>
 
-        {/* Footer */}
-        <motion.footer
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1 }}
-          className="mt-16 pb-8 text-center"
-        >
-          <p className="text-muted-foreground text-sm">
-            AI Agent Workforce Platform • Powered by OpenAI GPT-4
-          </p>
+        <motion.footer initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="mt-16 pb-8 text-center">
+          <p className="text-muted-foreground text-sm">AI Agent Workforce Platform • Powered by OpenAI GPT-4</p>
         </motion.footer>
       </div>
 
-      {/* Results Panel */}
-      <ResultsPanel
-        results={results}
-        isOpen={showResults}
-        onClose={() => setShowResults(false)}
-        mission={currentMission}
-      />
+      <ResultsPanel results={results} isOpen={showResults} onClose={() => setShowResults(false)} mission={currentMission} onSave={handleSaveMission} isSaved={isSaved} />
+      <MissionHistoryPanel isOpen={showHistory} onClose={() => setShowHistory(false)} missions={missions} onRerun={handleRerunMission} onDelete={() => {}} onView={handleViewMission} />
+      <CreateAgentDialog isOpen={showCreateAgent} onClose={() => setShowCreateAgent(false)} onSave={handleCreateAgent} />
+      {settingsAgent && (
+        <AgentSettingsDialog
+          isOpen={!!settingsAgent}
+          onClose={() => setSettingsAgent(null)}
+          agentId={settingsAgent.id}
+          agentName={settingsAgent.name}
+          currentSettings={agentSettings.get(settingsAgent.id)}
+          onSave={handleSaveAgentSettings}
+        />
+      )}
     </div>
   );
 };

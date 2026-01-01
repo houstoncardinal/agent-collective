@@ -13,9 +13,13 @@ interface AgentRequest {
   agentName: string;
   agentRole: string;
   mission: string;
+  customPrompt?: string;
+  temperature?: number;
+  maxTokens?: number;
+  isCustom?: boolean;
 }
 
-const agentPrompts: Record<string, string> = {
+const defaultAgentPrompts: Record<string, string> = {
   "1": `You are ARIA, a Strategic Planner AI. Your role is to:
 - Analyze the mission and break it down into actionable steps
 - Create a clear execution roadmap
@@ -91,11 +95,33 @@ serve(async (req) => {
       throw new Error('OPENAI_API_KEY is not configured');
     }
 
-    const { agentId, agentName, agentRole, mission }: AgentRequest = await req.json();
+    const { 
+      agentId, 
+      agentName, 
+      agentRole, 
+      mission, 
+      customPrompt, 
+      temperature = 0.7, 
+      maxTokens = 300,
+      isCustom = false 
+    }: AgentRequest = await req.json();
     
     console.log(`Agent ${agentName} (${agentRole}) processing mission: ${mission}`);
+    console.log(`Settings: temperature=${temperature}, maxTokens=${maxTokens}, customPrompt=${!!customPrompt}`);
 
-    const systemPrompt = agentPrompts[agentId] || `You are ${agentName}, a ${agentRole}. Complete the given mission professionally and concisely.`;
+    // Determine the system prompt to use
+    let systemPrompt: string;
+    
+    if (customPrompt) {
+      // Use custom prompt if provided
+      systemPrompt = customPrompt;
+    } else if (isCustom) {
+      // For custom agents without a custom prompt in the request, use a generic prompt
+      systemPrompt = `You are ${agentName}, a ${agentRole}. Complete the given mission professionally and concisely.`;
+    } else {
+      // Use default prompts for built-in agents
+      systemPrompt = defaultAgentPrompts[agentId] || `You are ${agentName}, a ${agentRole}. Complete the given mission professionally and concisely.`;
+    }
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -109,8 +135,8 @@ serve(async (req) => {
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Mission: ${mission}\n\nComplete your specialized task for this mission. Be concise, actionable, and specific.` }
         ],
-        max_tokens: 300,
-        temperature: 0.7,
+        max_tokens: maxTokens,
+        temperature: temperature,
       }),
     });
 
