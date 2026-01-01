@@ -11,18 +11,27 @@ export interface Mission {
   results: AgentResult[];
 }
 
-export const useMissions = () => {
+export const useMissions = (teamId?: string | null) => {
   const [missions, setMissions] = useState<Mission[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadMissions = useCallback(async () => {
     setIsLoading(true);
 
-    const { data: missionsData, error: missionsError } = await supabase
+    let query = supabase
       .from("missions")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(50);
+
+    // Filter by team or personal (null team_id)
+    if (teamId) {
+      query = query.eq("team_id", teamId);
+    } else {
+      query = query.is("team_id", null);
+    }
+
+    const { data: missionsData, error: missionsError } = await query;
 
     if (missionsError) {
       console.error("Error loading missions:", missionsError);
@@ -54,19 +63,20 @@ export const useMissions = () => {
 
     setMissions(missionsWithResults);
     setIsLoading(false);
-  }, []);
+  }, [teamId]);
 
   useEffect(() => {
     loadMissions();
-  }, [loadMissions]);
+  }, [loadMissions, teamId]);
 
-  const saveMission = async (missionText: string, results: AgentResult[]): Promise<string | null> => {
+  const saveMission = async (missionText: string, results: AgentResult[], forTeamId?: string | null): Promise<string | null> => {
     const { data: missionData, error: missionError } = await supabase
       .from("missions")
       .insert({
         mission_text: missionText,
         status: "completed",
         completed_at: new Date().toISOString(),
+        team_id: forTeamId || null,
       })
       .select()
       .single();
