@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Plus, History, Settings } from "lucide-react";
+import { Plus, History, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { GridBackground } from "@/components/GridBackground";
@@ -12,15 +12,29 @@ import { ResultsPanel, AgentResult } from "@/components/ResultsPanel";
 import { MissionHistoryPanel } from "@/components/MissionHistoryPanel";
 import { AgentSettingsDialog } from "@/components/AgentSettingsDialog";
 import { CreateAgentDialog } from "@/components/CreateAgentDialog";
+import { AgentSelectionDialog } from "@/components/AgentSelectionDialog";
+import { TeamDialog } from "@/components/TeamDialog";
 import { useAgents, defaultAgents, Agent, CustomAgentData } from "@/hooks/useAgents";
 import { useMissions, Mission } from "@/hooks/useMissions";
+import { useTeams } from "@/hooks/useTeams";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
 
 const Index = () => {
   const { toast } = useToast();
-  const { agents, setAgents, agentSettings, saveAgentSettings, createCustomAgent, resetAgents } = useAgents();
-  const { missions, saveMission } = useMissions();
+  const {
+    teams,
+    currentTeam,
+    setCurrentTeam,
+    createTeam,
+    joinTeam,
+    leaveTeam,
+    deleteTeam,
+  } = useTeams();
+  
+  const { agents, setAgents, agentSettings, saveAgentSettings, createCustomAgent, resetAgents } = useAgents(currentTeam?.id);
+  const { missions, saveMission, deleteMission } = useMissions(currentTeam?.id);
   
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -32,6 +46,9 @@ const Index = () => {
   
   const [showHistory, setShowHistory] = useState(false);
   const [showCreateAgent, setShowCreateAgent] = useState(false);
+  const [showTeamDialog, setShowTeamDialog] = useState(false);
+  const [showAgentSelection, setShowAgentSelection] = useState(false);
+  const [pendingMission, setPendingMission] = useState("");
   const [settingsAgent, setSettingsAgent] = useState<{ id: string; name: string } | null>(null);
 
   const activeAgents = agents.filter((a) => a.status === "active").length;
@@ -110,8 +127,16 @@ const Index = () => {
     [addActivity, agentSettings, setAgents]
   );
 
-  const handleCommand = useCallback(
-    async (command: string) => {
+  // This is called when user submits a command - opens agent selection dialog
+  const handleCommandSubmit = useCallback((command: string) => {
+    setPendingMission(command);
+    setShowAgentSelection(true);
+  }, []);
+
+  // This is called after user selects agents
+  const handleRunMission = useCallback(
+    async (selectedAgentIds: string[]) => {
+      const command = pendingMission;
       setIsProcessing(true);
       setCurrentMission(command);
       setResults([]);
@@ -119,23 +144,8 @@ const Index = () => {
       resetAgents();
       addActivity("SYSTEM", `New mission received: "${command}"`, "info");
 
-      const commandLower = command.toLowerCase();
-      let agentIdsToActivate: string[] = [];
-
-      if (commandLower.includes("market") || commandLower.includes("campaign") || commandLower.includes("launch")) {
-        agentIdsToActivate = ["1", "3", "5", "7"];
-      } else if (commandLower.includes("code") || commandLower.includes("build") || commandLower.includes("develop")) {
-        agentIdsToActivate = ["1", "2", "7", "8"];
-      } else if (commandLower.includes("research") || commandLower.includes("analyze") || commandLower.includes("data")) {
-        agentIdsToActivate = ["1", "4", "6"];
-      } else if (commandLower.includes("content") || commandLower.includes("write") || commandLower.includes("blog")) {
-        agentIdsToActivate = ["1", "3", "4"];
-      } else {
-        agentIdsToActivate = agents.map((a) => a.id);
-      }
-
       const agentsToActivate = agents.filter(
-        (a) => agentIdsToActivate.includes(a.id) && (agentSettings.get(a.id)?.isEnabled ?? true)
+        (a) => selectedAgentIds.includes(a.id) && (agentSettings.get(a.id)?.isEnabled ?? true)
       );
 
       const promises = agentsToActivate.map((agent, index) => {
@@ -155,12 +165,12 @@ const Index = () => {
         toast({ title: "Mission Complete", description: `${agentsToActivate.length} agents have completed their tasks.` });
       }, 500);
     },
-    [addActivity, executeAgentTask, agents, agentSettings, resetAgents, toast]
+    [addActivity, executeAgentTask, agents, agentSettings, resetAgents, toast, pendingMission]
   );
 
   const handleSaveMission = async () => {
     if (results.length > 0 && currentMission) {
-      await saveMission(currentMission, results);
+      await saveMission(currentMission, results, currentTeam?.id);
       setIsSaved(true);
       toast({ title: "Mission Saved", description: "You can find it in your mission history." });
     }
@@ -168,7 +178,8 @@ const Index = () => {
 
   const handleRerunMission = (mission: Mission) => {
     setShowHistory(false);
-    handleCommand(mission.missionText);
+    setPendingMission(mission.missionText);
+    setShowAgentSelection(true);
   };
 
   const handleViewMission = (mission: Mission) => {
@@ -180,8 +191,13 @@ const Index = () => {
   };
 
   const handleCreateAgent = async (agentData: CustomAgentData) => {
-    await createCustomAgent(agentData);
-    toast({ title: "Agent Created", description: `${agentData.name} is ready for missions.` });
+    await createCustomAgent(agentData, currentTeam?.id);
+    toast({ title: "Agent Created", description: `${agentData.name} is ready for missions.${currentTeam ? ` Shared with ${currentTeam.name}` : ""}` });
+  };
+
+  const handleDeleteMission = async (missionId: string) => {
+    await deleteMission(missionId);
+    toast({ title: "Mission Deleted", description: "Mission removed from history." });
   };
 
   const handleSaveAgentSettings = async (settings: any) => {
@@ -195,8 +211,22 @@ const Index = () => {
       <div className="container mx-auto px-4 py-8 relative z-10">
         <HeroSection />
 
+        {/* Team Context Indicator */}
+        {currentTeam && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-center mb-4">
+            <Badge variant="secondary" className="text-sm">
+              <Users className="w-3 h-3 mr-1" />
+              Team: {currentTeam.name}
+            </Badge>
+          </motion.div>
+        )}
+
         {/* Action Buttons */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="flex justify-center gap-3 mb-8">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="flex justify-center gap-3 mb-8 flex-wrap">
+          <Button variant="outline" onClick={() => setShowTeamDialog(true)}>
+            <Users className="w-4 h-4 mr-2" />
+            Teams
+          </Button>
           <Button variant="outline" onClick={() => setShowHistory(true)}>
             <History className="w-4 h-4 mr-2" />
             Mission History
@@ -207,7 +237,7 @@ const Index = () => {
           </Button>
         </motion.div>
 
-        <CommandInput onSubmit={handleCommand} isProcessing={isProcessing} />
+        <CommandInput onSubmit={handleCommandSubmit} isProcessing={isProcessing} />
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="mt-12">
           <StatsPanel totalAgents={agents.length} activeAgents={activeAgents} completedTasks={completedTasks} avgTime="2.4s" />
         </motion.div>
@@ -246,8 +276,26 @@ const Index = () => {
       </div>
 
       <ResultsPanel results={results} isOpen={showResults} onClose={() => setShowResults(false)} mission={currentMission} onSave={handleSaveMission} isSaved={isSaved} />
-      <MissionHistoryPanel isOpen={showHistory} onClose={() => setShowHistory(false)} missions={missions} onRerun={handleRerunMission} onDelete={() => {}} onView={handleViewMission} />
+      <MissionHistoryPanel isOpen={showHistory} onClose={() => setShowHistory(false)} missions={missions} onRerun={handleRerunMission} onDelete={handleDeleteMission} onView={handleViewMission} />
       <CreateAgentDialog isOpen={showCreateAgent} onClose={() => setShowCreateAgent(false)} onSave={handleCreateAgent} />
+      <AgentSelectionDialog
+        isOpen={showAgentSelection}
+        onClose={() => setShowAgentSelection(false)}
+        agents={agents.filter((a) => agentSettings.get(a.id)?.isEnabled ?? true)}
+        onConfirm={handleRunMission}
+        mission={pendingMission}
+      />
+      <TeamDialog
+        isOpen={showTeamDialog}
+        onClose={() => setShowTeamDialog(false)}
+        teams={teams}
+        currentTeam={currentTeam}
+        onCreateTeam={createTeam}
+        onJoinTeam={joinTeam}
+        onLeaveTeam={leaveTeam}
+        onDeleteTeam={deleteTeam}
+        onSelectTeam={setCurrentTeam}
+      />
       {settingsAgent && (
         <AgentSettingsDialog
           isOpen={!!settingsAgent}

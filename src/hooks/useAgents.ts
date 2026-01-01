@@ -82,7 +82,7 @@ export const getIconComponent = (iconName: string): LucideIcon => {
   return iconMap[iconName] || Bot;
 };
 
-export const useAgents = () => {
+export const useAgents = (teamId?: string | null) => {
   const [agents, setAgents] = useState<Agent[]>(defaultAgents);
   const [agentSettings, setAgentSettings] = useState<Map<string, AgentSettings>>(new Map());
   const [customAgents, setCustomAgents] = useState<CustomAgentData[]>([]);
@@ -109,10 +109,19 @@ export const useAgents = () => {
   };
 
   const loadCustomAgents = async () => {
-    const { data, error } = await supabase
+    let query = supabase
       .from("custom_agents")
       .select("*")
       .eq("is_active", true);
+
+    // Filter by team or personal (null team_id)
+    if (teamId) {
+      query = query.eq("team_id", teamId);
+    } else {
+      query = query.is("team_id", null);
+    }
+
+    const { data, error } = await query;
 
     if (!error && data) {
       const customAgentData: CustomAgentData[] = data.map((agent) => ({
@@ -152,7 +161,7 @@ export const useAgents = () => {
 
   useEffect(() => {
     loadAll();
-  }, []);
+  }, [teamId]);
 
   const saveAgentSettings = async (agentId: string, settings: Partial<AgentSettings>) => {
     const existing = agentSettings.get(agentId);
@@ -174,7 +183,7 @@ export const useAgents = () => {
     return { error };
   };
 
-  const createCustomAgent = async (agentData: CustomAgentData) => {
+  const createCustomAgent = async (agentData: CustomAgentData, forTeamId?: string | null) => {
     const { data, error } = await supabase
       .from("custom_agents")
       .insert({
@@ -185,6 +194,7 @@ export const useAgents = () => {
         temperature: agentData.temperature,
         max_tokens: agentData.maxTokens,
         is_active: true,
+        team_id: forTeamId || null,
       })
       .select()
       .single();
