@@ -14,7 +14,146 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      agent_settings: {
+        Row: {
+          agent_id: string
+          created_at: string
+          custom_prompt: string | null
+          id: string
+          is_enabled: boolean
+          max_tokens: number | null
+          temperature: number | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          custom_prompt?: string | null
+          id?: string
+          is_enabled?: boolean
+          max_tokens?: number | null
+          temperature?: number | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          custom_prompt?: string | null
+          id?: string
+          is_enabled?: boolean
+          max_tokens?: number | null
+          temperature?: number | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      custom_agents: {
+        Row: {
+          created_at: string
+          icon: string
+          id: string
+          is_active: boolean
+          max_tokens: number
+          name: string
+          role: string
+          system_prompt: string
+          temperature: number
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          icon?: string
+          id?: string
+          is_active?: boolean
+          max_tokens?: number
+          name: string
+          role: string
+          system_prompt: string
+          temperature?: number
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          icon?: string
+          id?: string
+          is_active?: boolean
+          max_tokens?: number
+          name?: string
+          role?: string
+          system_prompt?: string
+          temperature?: number
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      mission_results: {
+        Row: {
+          agent_id: string
+          agent_name: string
+          created_at: string
+          id: string
+          mission_id: string
+          result: string
+        }
+        Insert: {
+          agent_id: string
+          agent_name: string
+          created_at?: string
+          id?: string
+          mission_id: string
+          result: string
+        }
+        Update: {
+          agent_id?: string
+          agent_name?: string
+          created_at?: string
+          id?: string
+          mission_id?: string
+          result?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mission_results_mission_id_fkey"
+            columns: ["mission_id"]
+            isOneToOne: false
+            referencedRelation: "missions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      missions: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          id: string
+          mission_text: string
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          mission_text: string
+          status?: string
+          user_id?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          mission_text?: string
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

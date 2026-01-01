@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
-import { LucideIcon } from "lucide-react";
+import { LucideIcon, Settings } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export type AgentStatus = "idle" | "active" | "completed" | "error";
 
@@ -11,6 +12,8 @@ interface AgentCardProps {
   progress?: number;
   task?: string;
   delay?: number;
+  isCustom?: boolean;
+  onSettings?: () => void;
 }
 
 const statusConfig = {
@@ -48,6 +51,8 @@ export const AgentCard = ({
   progress = 0,
   task,
   delay = 0,
+  isCustom,
+  onSettings,
 }: AgentCardProps) => {
   const config = statusConfig[status];
 
@@ -59,6 +64,15 @@ export const AgentCard = ({
       whileHover={{ scale: 1.02, y: -4 }}
       className={`relative glass rounded-xl p-5 border-2 ${config.color} ${config.glow} transition-all duration-300 cursor-pointer group`}
     >
+      {/* Custom badge */}
+      {isCustom && (
+        <div className="absolute top-4 left-4">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-accent bg-accent/20 px-2 py-0.5 rounded-full">
+            Custom
+          </span>
+        </div>
+      )}
+
       {/* Status indicator */}
       <div className="absolute top-4 right-4 flex items-center gap-2">
         <span className={`text-xs font-medium uppercase tracking-wider ${config.labelColor}`}>
@@ -67,8 +81,23 @@ export const AgentCard = ({
         <div className={`w-2 h-2 rounded-full ${status === "active" ? "bg-primary animate-pulse" : status === "completed" ? "bg-glow-success" : status === "error" ? "bg-destructive" : "bg-muted-foreground"}`} />
       </div>
 
+      {/* Settings button */}
+      {onSettings && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSettings();
+          }}
+        >
+          <Settings className="w-4 h-4" />
+        </Button>
+      )}
+
       {/* Icon */}
-      <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 transition-all duration-300 ${status === "active" ? "bg-primary/20 border border-primary/40" : "bg-secondary border border-border"} group-hover:border-primary/40`}>
+      <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 transition-all duration-300 ${isCustom ? "mt-4" : ""} ${status === "active" ? "bg-primary/20 border border-primary/40" : "bg-secondary border border-border"} group-hover:border-primary/40`}>
         <Icon className={`w-7 h-7 ${status === "active" ? "text-primary" : "text-foreground"}`} />
       </div>
 
