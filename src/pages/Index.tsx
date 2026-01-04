@@ -16,10 +16,12 @@ import { AgentSelectionDialog } from "@/components/AgentSelectionDialog";
 import { TeamDialog } from "@/components/TeamDialog";
 import { AgentTemplatesDialog } from "@/components/AgentTemplatesDialog";
 import { CreateTemplateDialog } from "@/components/CreateTemplateDialog";
+import { LiveCollaborationIndicator } from "@/components/LiveCollaborationIndicator";
 import { useAgents, defaultAgents, Agent, CustomAgentData } from "@/hooks/useAgents";
 import { useMissions, Mission } from "@/hooks/useMissions";
 import { useTeams } from "@/hooks/useTeams";
 import { useAgentTemplates, AgentTemplate } from "@/hooks/useAgentTemplates";
+import { useRealtimeMission } from "@/hooks/useRealtimeMission";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
@@ -39,7 +41,16 @@ const Index = () => {
   const { agents, setAgents, agentSettings, saveAgentSettings, createCustomAgent, resetAgents } = useAgents(currentTeam?.id);
   const { missions, saveMission, deleteMission } = useMissions(currentTeam?.id);
   const { templates, createTemplate, deleteTemplate, incrementUseCount } = useAgentTemplates(currentTeam?.id);
-  
+  const {
+    liveMission,
+    teamMembers,
+    isCollaborating,
+    toggleCollaboration,
+    broadcastMissionStart,
+    broadcastAgentProgress,
+    broadcastAgentResult,
+    broadcastMissionComplete,
+  } = useRealtimeMission(currentTeam?.id);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [completedTasks, setCompletedTasks] = useState(0);
@@ -78,12 +89,15 @@ const Index = () => {
         )
       );
       addActivity(agent.name, `started working on mission`, "processing");
+      broadcastAgentProgress(agent.id, agent.name, "active", 10);
 
       const progressInterval = setInterval(() => {
         setAgents((prev) =>
           prev.map((a) => {
             if (a.id === agent.id && a.status === "active" && a.progress < 85) {
-              return { ...a, progress: a.progress + Math.random() * 10 };
+              const newProgress = a.progress + Math.random() * 10;
+              broadcastAgentProgress(agent.id, agent.name, "active", newProgress);
+              return { ...a, progress: newProgress };
             }
             return a;
           })
@@ -117,12 +131,17 @@ const Index = () => {
           );
           addActivity(agent.name, "completed task successfully", "success");
           setCompletedTasks((prev) => prev + 1);
-          setResults((prev) => [...prev, { 
+          
+          const agentResult = { 
             agentId: agent.id, 
             agentName: agent.name, 
             result: data.result,
             output: data.output as AgentOutput | undefined
-          }]);
+          };
+          setResults((prev) => [...prev, agentResult]);
+          
+          broadcastAgentProgress(agent.id, agent.name, "completed", 100);
+          broadcastAgentResult(agentResult);
         } else {
           throw new Error(data.error || "Unknown error");
         }
@@ -133,9 +152,10 @@ const Index = () => {
           prev.map((a) => (a.id === agent.id ? { ...a, status: "error" as AgentStatus, progress: 0 } : a))
         );
         addActivity(agent.name, `encountered an error`, "error");
+        broadcastAgentProgress(agent.id, agent.name, "error", 0);
       }
     },
-    [addActivity, agentSettings, setAgents]
+    [addActivity, agentSettings, setAgents, broadcastAgentProgress, broadcastAgentResult]
   );
 
   // This is called when user submits a command - opens agent selection dialog
@@ -148,6 +168,7 @@ const Index = () => {
   const handleRunMission = useCallback(
     async (selectedAgentIds: string[]) => {
       const command = pendingMission;
+      const missionId = Date.now().toString();
       setIsProcessing(true);
       setCurrentMission(command);
       setResults([]);
@@ -158,6 +179,9 @@ const Index = () => {
       const agentsToActivate = agents.filter(
         (a) => selectedAgentIds.includes(a.id) && (agentSettings.get(a.id)?.isEnabled ?? true)
       );
+
+      // Broadcast mission start for real-time collaboration
+      broadcastMissionStart(missionId, command, selectedAgentIds);
 
       const promises = agentsToActivate.map((agent, index) => {
         return new Promise<void>((resolve) => {
@@ -174,9 +198,11 @@ const Index = () => {
       setTimeout(() => {
         setShowResults(true);
         toast({ title: "Mission Complete", description: `${agentsToActivate.length} agents have completed their tasks.` });
+        // Broadcast mission complete
+        broadcastMissionComplete(results);
       }, 500);
     },
-    [addActivity, executeAgentTask, agents, agentSettings, resetAgents, toast, pendingMission]
+    [addActivity, executeAgentTask, agents, agentSettings, resetAgents, toast, pendingMission, broadcastMissionStart, broadcastMissionComplete, results]
   );
 
   const handleSaveMission = async () => {
@@ -250,15 +276,23 @@ const Index = () => {
       <div className="container mx-auto px-4 py-8 relative z-10">
         <HeroSection />
 
-        {/* Team Context Indicator */}
-        {currentTeam && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-center mb-4">
+        {/* Team Context and Collaboration Indicator */}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-4">
+          {currentTeam && (
             <Badge variant="secondary" className="text-sm">
               <Users className="w-3 h-3 mr-1" />
               Team: {currentTeam.name}
             </Badge>
-          </motion.div>
-        )}
+          )}
+          {currentTeam && (
+            <LiveCollaborationIndicator
+              isCollaborating={isCollaborating}
+              teamMembers={teamMembers}
+              liveMission={liveMission}
+              onToggle={toggleCollaboration}
+            />
+          )}
+        </motion.div>
 
         {/* Action Buttons */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="flex justify-center gap-3 mb-8 flex-wrap">
