@@ -50,6 +50,65 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_templates: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          icon: string
+          id: string
+          is_public: boolean
+          max_tokens: number
+          name: string
+          role: string
+          system_prompt: string
+          team_id: string | null
+          temperature: number
+          updated_at: string
+          use_count: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          icon?: string
+          id?: string
+          is_public?: boolean
+          max_tokens?: number
+          name: string
+          role: string
+          system_prompt: string
+          team_id?: string | null
+          temperature?: number
+          updated_at?: string
+          use_count?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          icon?: string
+          id?: string
+          is_public?: boolean
+          max_tokens?: number
+          name?: string
+          role?: string
+          system_prompt?: string
+          team_id?: string | null
+          temperature?: number
+          updated_at?: string
+          use_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_templates_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       custom_agents: {
         Row: {
           created_at: string

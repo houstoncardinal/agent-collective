@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Plus, History, Users } from "lucide-react";
+import { Plus, History, Users, BookTemplate } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { GridBackground } from "@/components/GridBackground";
@@ -14,9 +14,12 @@ import { AgentSettingsDialog } from "@/components/AgentSettingsDialog";
 import { CreateAgentDialog } from "@/components/CreateAgentDialog";
 import { AgentSelectionDialog } from "@/components/AgentSelectionDialog";
 import { TeamDialog } from "@/components/TeamDialog";
+import { AgentTemplatesDialog } from "@/components/AgentTemplatesDialog";
+import { CreateTemplateDialog } from "@/components/CreateTemplateDialog";
 import { useAgents, defaultAgents, Agent, CustomAgentData } from "@/hooks/useAgents";
 import { useMissions, Mission } from "@/hooks/useMissions";
 import { useTeams } from "@/hooks/useTeams";
+import { useAgentTemplates, AgentTemplate } from "@/hooks/useAgentTemplates";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
@@ -35,6 +38,7 @@ const Index = () => {
   
   const { agents, setAgents, agentSettings, saveAgentSettings, createCustomAgent, resetAgents } = useAgents(currentTeam?.id);
   const { missions, saveMission, deleteMission } = useMissions(currentTeam?.id);
+  const { templates, createTemplate, deleteTemplate, incrementUseCount } = useAgentTemplates(currentTeam?.id);
   
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -48,6 +52,8 @@ const Index = () => {
   const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [showTeamDialog, setShowTeamDialog] = useState(false);
   const [showAgentSelection, setShowAgentSelection] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showCreateTemplate, setShowCreateTemplate] = useState(false);
   const [pendingMission, setPendingMission] = useState("");
   const [settingsAgent, setSettingsAgent] = useState<{ id: string; name: string } | null>(null);
 
@@ -205,6 +211,34 @@ const Index = () => {
     toast({ title: "Settings Saved", description: "Agent configuration updated." });
   };
 
+  const handleUseTemplate = async (template: AgentTemplate) => {
+    await createCustomAgent({
+      name: template.name,
+      role: template.role,
+      icon: template.icon,
+      systemPrompt: template.systemPrompt,
+      temperature: template.temperature,
+      maxTokens: template.maxTokens,
+      isActive: true,
+    }, currentTeam?.id);
+    await incrementUseCount(template.id);
+    setShowTemplates(false);
+    toast({ title: "Agent Created from Template", description: `${template.name} has been added to your agents.` });
+  };
+
+  const handleDeleteTemplate = async (id: string) => {
+    await deleteTemplate(id);
+    toast({ title: "Template Deleted", description: "Template has been removed." });
+  };
+
+  const handleCreateTemplate = async (
+    template: Omit<AgentTemplate, "id" | "createdAt" | "useCount" | "createdBy">,
+    teamId?: string | null
+  ) => {
+    await createTemplate(template, teamId);
+    toast({ title: "Template Created", description: `${template.name} template is now available.${template.isPublic ? " (Public)" : teamId ? " (Team)" : ""}` });
+  };
+
   return (
     <div className="min-h-screen relative">
       <GridBackground />
@@ -230,6 +264,10 @@ const Index = () => {
           <Button variant="outline" onClick={() => setShowHistory(true)}>
             <History className="w-4 h-4 mr-2" />
             Mission History
+          </Button>
+          <Button variant="outline" onClick={() => setShowTemplates(true)}>
+            <BookTemplate className="w-4 h-4 mr-2" />
+            Templates
           </Button>
           <Button variant="outline" onClick={() => setShowCreateAgent(true)}>
             <Plus className="w-4 h-4 mr-2" />
@@ -295,6 +333,24 @@ const Index = () => {
         onLeaveTeam={leaveTeam}
         onDeleteTeam={deleteTeam}
         onSelectTeam={setCurrentTeam}
+      />
+      <AgentTemplatesDialog
+        isOpen={showTemplates}
+        onClose={() => setShowTemplates(false)}
+        templates={templates}
+        currentTeam={currentTeam}
+        onUseTemplate={handleUseTemplate}
+        onDeleteTemplate={handleDeleteTemplate}
+        onCreateTemplate={() => {
+          setShowTemplates(false);
+          setShowCreateTemplate(true);
+        }}
+      />
+      <CreateTemplateDialog
+        isOpen={showCreateTemplate}
+        onClose={() => setShowCreateTemplate(false)}
+        onSave={handleCreateTemplate}
+        currentTeam={currentTeam}
       />
       {settingsAgent && (
         <AgentSettingsDialog
