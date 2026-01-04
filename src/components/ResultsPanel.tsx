@@ -32,6 +32,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { DownloadButton } from "@/components/DownloadButton";
+import { AgentAvatar } from "@/components/AgentAvatar";
+import { getIconComponent } from "@/hooks/useAgents";
 
 export interface AgentOutput {
   type: 'text' | 'code' | 'image' | 'chart' | 'document' | 'checklist' | 'table';
@@ -496,20 +499,22 @@ export const ResultsPanel = ({
                     {/* Agent Header */}
                     <div className="flex items-center justify-between mb-5">
                       <div className="flex items-center gap-4">
-                        <div className="relative">
-                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center border border-primary/30">
-                            <span className="font-display font-bold text-primary text-sm">{result.agentName.slice(0, 2)}</span>
-                          </div>
-                          <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-glow-success/20 border border-glow-success/40 flex items-center justify-center">
-                            <Check className="w-3 h-3 text-glow-success" />
-                          </div>
-                        </div>
+                        <AgentAvatar
+                          name={result.agentName}
+                          icon={getIconComponent(result.agentName.slice(0, 4))}
+                          status="completed"
+                          size="md"
+                          showPulse={false}
+                        />
                         <div>
                           <h3 className="font-display font-bold text-foreground text-lg">{result.agentName}</h3>
                           <p className="text-sm text-muted-foreground">Deliverable Ready</p>
                         </div>
                       </div>
-                      {result.output && <OutputTypeBadge type={result.output.type} />}
+                      <div className="flex items-center gap-3">
+                        {result.output && <OutputTypeBadge type={result.output.type} />}
+                        {result.output && <DownloadButton output={result.output} agentName={result.agentName} />}
+                      </div>
                     </div>
 
                     {/* Output Title */}
