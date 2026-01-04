@@ -8,7 +8,7 @@ import { CommandInput } from "@/components/CommandInput";
 import { AgentCard, AgentStatus } from "@/components/AgentCard";
 import { ActivityFeed, Activity } from "@/components/ActivityFeed";
 import { StatsPanel } from "@/components/StatsPanel";
-import { ResultsPanel, AgentResult } from "@/components/ResultsPanel";
+import { ResultsPanel, AgentResult, AgentOutput } from "@/components/ResultsPanel";
 import { MissionHistoryPanel } from "@/components/MissionHistoryPanel";
 import { AgentSettingsDialog } from "@/components/AgentSettingsDialog";
 import { CreateAgentDialog } from "@/components/CreateAgentDialog";
@@ -117,7 +117,12 @@ const Index = () => {
           );
           addActivity(agent.name, "completed task successfully", "success");
           setCompletedTasks((prev) => prev + 1);
-          setResults((prev) => [...prev, { agentId: agent.id, agentName: agent.name, result: data.result }]);
+          setResults((prev) => [...prev, { 
+            agentId: agent.id, 
+            agentName: agent.name, 
+            result: data.result,
+            output: data.output as AgentOutput | undefined
+          }]);
         } else {
           throw new Error(data.error || "Unknown error");
         }

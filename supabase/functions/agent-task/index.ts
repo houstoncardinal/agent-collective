@@ -1,7 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -19,71 +19,293 @@ interface AgentRequest {
   isCustom?: boolean;
 }
 
-const defaultAgentPrompts: Record<string, string> = {
-  "1": `You are ARIA, a Strategic Planner AI. Your role is to:
-- Analyze the mission and break it down into actionable steps
-- Create a clear execution roadmap
-- Identify key milestones and dependencies
-- Provide strategic recommendations
+interface AgentOutput {
+  type: 'text' | 'code' | 'image' | 'chart' | 'document' | 'checklist' | 'table';
+  title: string;
+  content: string;
+  language?: string; // for code
+  chartData?: { label: string; value: number; color?: string }[]; // for charts
+  tableData?: { headers: string[]; rows: string[][] }; // for tables
+  checklistItems?: { item: string; priority: 'high' | 'medium' | 'low' }[]; // for checklists
+}
 
-Respond with a concise, structured plan (max 150 words). Use bullet points.`,
-
-  "2": `You are CODA, a Code Architect AI. Your role is to:
-- Design technical solutions for the given mission
-- Suggest architecture patterns and tech stack
-- Outline code structure and key components
-- Identify potential technical challenges
-
-Respond with technical recommendations (max 150 words). Be specific about technologies.`,
-
-  "3": `You are DOXA, a Content Writer AI. Your role is to:
-- Create compelling copy and messaging
-- Write headlines, taglines, and key messages
-- Ensure brand voice consistency
-- Craft persuasive narratives
-
-Respond with actual content drafts (max 150 words). Be creative and engaging.`,
-
-  "4": `You are SEEK, a Research Analyst AI. Your role is to:
-- Gather relevant market intelligence
-- Analyze competitive landscape
-- Identify trends and opportunities
-- Synthesize insights into actionable recommendations
-
-Respond with research findings (max 150 words). Include specific insights.`,
-
-  "5": `You are VEGA, a Marketing Strategist AI. Your role is to:
-- Develop marketing campaign strategies
-- Define target audience segments
-- Suggest channels and tactics
-- Create campaign messaging frameworks
-
-Respond with marketing strategy (max 150 words). Be specific about tactics.`,
-
-  "6": `You are FLUX, a Data Analyst AI. Your role is to:
-- Identify key metrics to track
-- Suggest data collection methods
-- Create measurement frameworks
-- Provide analytical insights
-
-Respond with data strategy (max 150 words). Include specific KPIs.`,
-
-  "7": `You are PIXL, a Design Director AI. Your role is to:
-- Define visual direction and aesthetics
-- Suggest design patterns and UI/UX approaches
-- Create mood boards and style guides
-- Ensure brand visual consistency
-
-Respond with design recommendations (max 150 words). Be visually descriptive.`,
-
-  "8": `You are WARD, a Security Auditor AI. Your role is to:
-- Identify potential security risks
-- Suggest security best practices
-- Create security checklists
-- Recommend compliance measures
-
-Respond with security assessment (max 150 words). Prioritize critical issues.`,
+// Define agent output types based on their role
+const agentOutputConfig: Record<string, { outputType: AgentOutput['type']; generateImage?: boolean }> = {
+  "1": { outputType: 'checklist' }, // ARIA - Strategic Planner -> Checklists
+  "2": { outputType: 'code' }, // CODA - Code Architect -> Code
+  "3": { outputType: 'document' }, // DOXA - Content Writer -> Documents
+  "4": { outputType: 'table' }, // SEEK - Research Analyst -> Tables
+  "5": { outputType: 'chart' }, // VEGA - Marketing Strategist -> Charts
+  "6": { outputType: 'chart' }, // FLUX - Data Analyst -> Charts
+  "7": { outputType: 'image', generateImage: true }, // PIXL - Design Director -> Images
+  "8": { outputType: 'checklist' }, // WARD - Security Auditor -> Checklists
 };
+
+const defaultAgentPrompts: Record<string, string> = {
+  "1": `You are ARIA, a Strategic Planner AI. Analyze the mission and create a structured action plan.
+
+RESPOND IN THIS EXACT JSON FORMAT:
+{
+  "title": "Strategic Action Plan",
+  "checklistItems": [
+    { "item": "First priority task description", "priority": "high" },
+    { "item": "Second task description", "priority": "medium" },
+    { "item": "Third task description", "priority": "low" }
+  ],
+  "summary": "Brief 2-sentence executive summary"
+}
+
+Include 5-8 actionable items with appropriate priority levels.`,
+
+  "2": `You are CODA, a Code Architect AI. Design technical solutions with actual code examples.
+
+RESPOND IN THIS EXACT JSON FORMAT:
+{
+  "title": "Technical Implementation",
+  "language": "typescript",
+  "code": "// Your actual code implementation here\\nconst example = () => {\\n  // implementation\\n};",
+  "explanation": "Brief explanation of the code architecture and key decisions"
+}
+
+Provide real, runnable code that addresses the mission. Use TypeScript/React when applicable.`,
+
+  "3": `You are DOXA, a Content Writer AI. Create compelling marketing copy and content.
+
+RESPOND IN THIS EXACT JSON FORMAT:
+{
+  "title": "Content Package",
+  "headline": "Main attention-grabbing headline",
+  "subheadline": "Supporting subtitle or tagline",
+  "bodyCopy": "Main content body with compelling narrative (2-3 paragraphs)",
+  "callToAction": "Clear CTA text",
+  "additionalAssets": ["Social post 1", "Email subject line", "Meta description"]
+}
+
+Be creative, persuasive, and on-brand.`,
+
+  "4": `You are SEEK, a Research Analyst AI. Provide comprehensive research insights.
+
+RESPOND IN THIS EXACT JSON FORMAT:
+{
+  "title": "Research Analysis Report",
+  "tableData": {
+    "headers": ["Category", "Finding", "Impact", "Recommendation"],
+    "rows": [
+      ["Market Size", "$X billion", "High", "Focus on segment A"],
+      ["Competitors", "3 major players", "Medium", "Differentiate on feature X"]
+    ]
+  },
+  "keyInsights": ["Insight 1", "Insight 2", "Insight 3"],
+  "conclusion": "Brief conclusion with actionable recommendations"
+}
+
+Include 4-6 research findings in the table.`,
+
+  "5": `You are VEGA, a Marketing Strategist AI. Develop data-driven marketing strategies.
+
+RESPOND IN THIS EXACT JSON FORMAT:
+{
+  "title": "Marketing Performance Metrics",
+  "chartData": [
+    { "label": "Social Media", "value": 35, "color": "#00d4ff" },
+    { "label": "Email", "value": 25, "color": "#a855f7" },
+    { "label": "SEO", "value": 20, "color": "#22c55e" },
+    { "label": "Paid Ads", "value": 15, "color": "#f59e0b" },
+    { "label": "Other", "value": 5, "color": "#ef4444" }
+  ],
+  "strategy": "Brief marketing strategy explanation",
+  "recommendations": ["Recommendation 1", "Recommendation 2", "Recommendation 3"]
+}
+
+Provide realistic percentages that add up to 100.`,
+
+  "6": `You are FLUX, a Data Analyst AI. Provide analytical insights with metrics.
+
+RESPOND IN THIS EXACT JSON FORMAT:
+{
+  "title": "Analytics Dashboard",
+  "chartData": [
+    { "label": "Q1", "value": 45000, "color": "#00d4ff" },
+    { "label": "Q2", "value": 52000, "color": "#a855f7" },
+    { "label": "Q3", "value": 61000, "color": "#22c55e" },
+    { "label": "Q4", "value": 78000, "color": "#f59e0b" }
+  ],
+  "kpis": [
+    { "metric": "Conversion Rate", "value": "3.2%", "trend": "up" },
+    { "metric": "Avg Order Value", "value": "$127", "trend": "up" }
+  ],
+  "analysis": "Brief analysis of the data trends"
+}
+
+Use realistic numbers relevant to the mission.`,
+
+  "7": `You are PIXL, a Design Director AI. Create visual design concepts.
+
+Describe a stunning visual design concept for this mission. Include:
+- Color palette (hex codes)
+- Typography recommendations
+- Layout structure
+- Key visual elements
+- Mood/aesthetic direction
+
+Be vivid and specific in your visual descriptions. This will be used to generate an actual image.`,
+
+  "8": `You are WARD, a Security Auditor AI. Conduct security assessments.
+
+RESPOND IN THIS EXACT JSON FORMAT:
+{
+  "title": "Security Assessment Report",
+  "riskLevel": "medium",
+  "checklistItems": [
+    { "item": "Critical: Implement input validation", "priority": "high" },
+    { "item": "Important: Add rate limiting", "priority": "high" },
+    { "item": "Recommended: Enable 2FA", "priority": "medium" }
+  ],
+  "vulnerabilities": ["Vulnerability 1 description", "Vulnerability 2 description"],
+  "recommendations": "Summary of security hardening steps"
+}
+
+Prioritize items by severity (high/medium/low).`,
+};
+
+async function generateImage(prompt: string): Promise<string | null> {
+  try {
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash-image',
+        messages: [
+          { 
+            role: 'user', 
+            content: `Create a professional, modern design mockup or concept visualization: ${prompt}. 
+            Style: Clean, minimalist, professional, high-quality digital art, UI/UX design aesthetic.` 
+          }
+        ],
+        modalities: ['image', 'text'],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Image generation failed:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+    return imageUrl || null;
+  } catch (error) {
+    console.error('Image generation error:', error);
+    return null;
+  }
+}
+
+async function generateTextResponse(systemPrompt: string, mission: string, temperature: number, maxTokens: number): Promise<string> {
+  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'google/gemini-2.5-flash',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Mission: ${mission}\n\nComplete your specialized task. Respond ONLY with the JSON format specified in your instructions.` }
+      ],
+      max_tokens: maxTokens,
+      temperature: temperature,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Lovable AI error:', response.status, errorText);
+    throw new Error(`AI API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+function parseAgentResponse(rawResponse: string, agentId: string, config: { outputType: AgentOutput['type'] }): AgentOutput {
+  // Try to extract JSON from the response
+  let jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+  let parsed: any = null;
+  
+  if (jsonMatch) {
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch (e) {
+      console.log('Failed to parse JSON, using raw response');
+    }
+  }
+
+  const output: AgentOutput = {
+    type: config.outputType,
+    title: parsed?.title || 'Agent Report',
+    content: '',
+  };
+
+  switch (config.outputType) {
+    case 'code':
+      output.language = parsed?.language || 'typescript';
+      output.content = parsed?.code || rawResponse;
+      if (parsed?.explanation) {
+        output.content = `${parsed.code}\n\n/* Explanation:\n${parsed.explanation}\n*/`;
+      }
+      break;
+
+    case 'chart':
+      output.chartData = parsed?.chartData || [
+        { label: 'Category A', value: 30, color: '#00d4ff' },
+        { label: 'Category B', value: 45, color: '#a855f7' },
+        { label: 'Category C', value: 25, color: '#22c55e' },
+      ];
+      output.content = parsed?.strategy || parsed?.analysis || rawResponse;
+      break;
+
+    case 'table':
+      output.tableData = parsed?.tableData || {
+        headers: ['Finding', 'Details'],
+        rows: [['Analysis', rawResponse.substring(0, 200)]]
+      };
+      output.content = parsed?.conclusion || (parsed?.keyInsights?.join('\n\n') || '');
+      break;
+
+    case 'checklist':
+      output.checklistItems = parsed?.checklistItems || [
+        { item: rawResponse.substring(0, 100), priority: 'medium' as const }
+      ];
+      output.content = parsed?.summary || parsed?.recommendations || '';
+      break;
+
+    case 'document':
+      if (parsed) {
+        output.content = `# ${parsed.headline || 'Content'}\n\n`;
+        if (parsed.subheadline) output.content += `## ${parsed.subheadline}\n\n`;
+        if (parsed.bodyCopy) output.content += `${parsed.bodyCopy}\n\n`;
+        if (parsed.callToAction) output.content += `**${parsed.callToAction}**\n\n`;
+        if (parsed.additionalAssets) {
+          output.content += `---\n### Additional Assets:\n`;
+          parsed.additionalAssets.forEach((asset: string, i: number) => {
+            output.content += `${i + 1}. ${asset}\n`;
+          });
+        }
+      } else {
+        output.content = rawResponse;
+      }
+      break;
+
+    default:
+      output.content = rawResponse;
+  }
+
+  return output;
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -91,8 +313,8 @@ serve(async (req) => {
   }
 
   try {
-    if (!openAIApiKey) {
-      throw new Error('OPENAI_API_KEY is not configured');
+    if (!LOVABLE_API_KEY) {
+      throw new Error('LOVABLE_API_KEY is not configured');
     }
 
     const { 
@@ -102,60 +324,49 @@ serve(async (req) => {
       mission, 
       customPrompt, 
       temperature = 0.7, 
-      maxTokens = 300,
+      maxTokens = 800,
       isCustom = false 
     }: AgentRequest = await req.json();
     
     console.log(`Agent ${agentName} (${agentRole}) processing mission: ${mission}`);
-    console.log(`Settings: temperature=${temperature}, maxTokens=${maxTokens}, customPrompt=${!!customPrompt}`);
 
-    // Determine the system prompt to use
-    let systemPrompt: string;
+    // Get agent configuration
+    const config = agentOutputConfig[agentId] || { outputType: 'text' as const };
     
+    // Determine system prompt
+    let systemPrompt: string;
     if (customPrompt) {
-      // Use custom prompt if provided
       systemPrompt = customPrompt;
     } else if (isCustom) {
-      // For custom agents without a custom prompt in the request, use a generic prompt
-      systemPrompt = `You are ${agentName}, a ${agentRole}. Complete the given mission professionally and concisely.`;
+      systemPrompt = `You are ${agentName}, a ${agentRole}. Complete the given mission professionally. Respond with detailed, actionable insights.`;
     } else {
-      // Use default prompts for built-in agents
-      systemPrompt = defaultAgentPrompts[agentId] || `You are ${agentName}, a ${agentRole}. Complete the given mission professionally and concisely.`;
+      systemPrompt = defaultAgentPrompts[agentId] || `You are ${agentName}, a ${agentRole}. Complete the given mission professionally.`;
     }
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Mission: ${mission}\n\nComplete your specialized task for this mission. Be concise, actionable, and specific.` }
-        ],
-        max_tokens: maxTokens,
-        temperature: temperature,
-      }),
-    });
+    // Generate text response
+    const rawResponse = await generateTextResponse(systemPrompt, mission, temperature, maxTokens);
+    
+    // Parse into structured output
+    const output = parseAgentResponse(rawResponse, agentId, config);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('OpenAI API error:', response.status, errorText);
-      throw new Error(`OpenAI API error: ${response.status}`);
+    // If this is a design agent, also generate an image
+    if (config.generateImage) {
+      console.log('Generating image for design agent...');
+      const imageUrl = await generateImage(`${mission}. ${rawResponse}`);
+      if (imageUrl) {
+        output.type = 'image';
+        output.content = imageUrl;
+      }
     }
 
-    const data = await response.json();
-    const result = data.choices[0].message.content;
-
-    console.log(`Agent ${agentName} completed task`);
+    console.log(`Agent ${agentName} completed task with output type: ${output.type}`);
 
     return new Response(JSON.stringify({ 
       success: true,
       agentId,
       agentName,
-      result 
+      output,
+      result: output.content // Keep for backward compatibility
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
