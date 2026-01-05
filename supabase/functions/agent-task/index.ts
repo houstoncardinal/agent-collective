@@ -168,67 +168,100 @@ RESPOND IN THIS EXACT JSON FORMAT:
 Prioritize items by severity (high/medium/low).`,
 };
 
-async function generateImage(prompt: string): Promise<string | null> {
-  try {
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash-image',
-        messages: [
-          { 
-            role: 'user', 
-            content: `Create a professional, modern design mockup or concept visualization: ${prompt}. 
-            Style: Clean, minimalist, professional, high-quality digital art, UI/UX design aesthetic.` 
-          }
-        ],
-        modalities: ['image', 'text'],
-      }),
-    });
+async function generateImage(prompt: string, retries = 3): Promise<string | null> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash-image',
+          messages: [
+            { 
+              role: 'user', 
+              content: `Create a professional, modern design mockup or concept visualization: ${prompt}. 
+              Style: Clean, minimalist, professional, high-quality digital art, UI/UX design aesthetic.` 
+            }
+          ],
+          modalities: ['image', 'text'],
+        }),
+      });
 
-    if (!response.ok) {
-      console.error('Image generation failed:', response.status);
-      return null;
+      if (response.status === 503 || response.status === 502 || response.status === 429) {
+        console.log(`Image API returned ${response.status}, attempt ${attempt}/${retries}`);
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          continue;
+        }
+      }
+
+      if (!response.ok) {
+        console.error('Image generation failed:', response.status);
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          continue;
+        }
+        return null;
+      }
+
+      const data = await response.json();
+      const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+      return imageUrl || null;
+    } catch (error) {
+      console.error(`Image generation attempt ${attempt} failed:`, error);
+      if (attempt === retries) return null;
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
     }
-
-    const data = await response.json();
-    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-    return imageUrl || null;
-  } catch (error) {
-    console.error('Image generation error:', error);
-    return null;
   }
+  return null;
 }
 
-async function generateTextResponse(systemPrompt: string, mission: string, temperature: number, maxTokens: number): Promise<string> {
-  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'google/gemini-2.5-flash',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Mission: ${mission}\n\nComplete your specialized task. Respond ONLY with the JSON format specified in your instructions.` }
-      ],
-      max_tokens: maxTokens,
-      temperature: temperature,
-    }),
-  });
+async function generateTextResponse(systemPrompt: string, mission: string, temperature: number, maxTokens: number, retries = 3): Promise<string> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Mission: ${mission}\n\nComplete your specialized task. Respond ONLY with the JSON format specified in your instructions.` }
+          ],
+          max_tokens: maxTokens,
+          temperature: temperature,
+        }),
+      });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Lovable AI error:', response.status, errorText);
-    throw new Error(`AI API error: ${response.status}`);
+      if (response.status === 503 || response.status === 502 || response.status === 429) {
+        console.log(`AI API returned ${response.status}, attempt ${attempt}/${retries}`);
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
+          continue;
+        }
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Lovable AI error:', response.status, errorText);
+        throw new Error(`AI API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.choices[0].message.content;
+    } catch (error) {
+      console.error(`Attempt ${attempt} failed:`, error);
+      if (attempt === retries) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+    }
   }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
+  throw new Error('Max retries exceeded');
 }
 
 function parseAgentResponse(rawResponse: string, agentId: string, config: { outputType: AgentOutput['type'] }): AgentOutput {
