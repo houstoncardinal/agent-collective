@@ -82,13 +82,23 @@ const Index = () => {
   }, []);
 
   const executeAgentTask = useCallback(
-    async (agent: Agent, mission: string) => {
+    async (agent: Agent, mission: string, isRetry: boolean = false) => {
+      const retryCount = isRetry ? (agent.retryCount || 0) + 1 : 0;
+      
       setAgents((prev) =>
         prev.map((a) =>
-          a.id === agent.id ? { ...a, status: "active" as AgentStatus, progress: 10, task: mission } : a
+          a.id === agent.id ? { 
+            ...a, 
+            status: "active" as AgentStatus, 
+            progress: 10, 
+            task: mission,
+            processingStatus: isRetry ? 'retrying' : 'thinking',
+            retryCount,
+            errorMessage: undefined,
+          } : a
         )
       );
-      addActivity(agent.name, `started working on mission`, "processing");
+      addActivity(agent.name, isRetry ? `retrying mission (attempt ${retryCount})` : `started working on mission`, "processing");
       broadcastAgentProgress(agent.id, agent.name, "active", 10);
 
       const progressInterval = setInterval(() => {
@@ -96,8 +106,13 @@ const Index = () => {
           prev.map((a) => {
             if (a.id === agent.id && a.status === "active" && a.progress < 85) {
               const newProgress = a.progress + Math.random() * 10;
+              // Update processing status based on progress
+              let processingStatus: 'thinking' | 'generating' | 'retrying' = isRetry ? 'retrying' : 'thinking';
+              if (newProgress > 40 && !isRetry) {
+                processingStatus = 'generating';
+              }
               broadcastAgentProgress(agent.id, agent.name, "active", newProgress);
-              return { ...a, progress: newProgress };
+              return { ...a, progress: newProgress, processingStatus };
             }
             return a;
           })
@@ -126,7 +141,14 @@ const Index = () => {
         if (data.success) {
           setAgents((prev) =>
             prev.map((a) =>
-              a.id === agent.id ? { ...a, status: "completed" as AgentStatus, progress: 100 } : a
+              a.id === agent.id ? { 
+                ...a, 
+                status: "completed" as AgentStatus, 
+                progress: 100,
+                processingStatus: 'completed',
+                retryCount: 0,
+                errorMessage: undefined,
+              } : a
             )
           );
           addActivity(agent.name, "completed task successfully", "success");
@@ -147,15 +169,33 @@ const Index = () => {
         }
       } catch (error) {
         clearInterval(progressInterval);
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
         console.error(`Agent ${agent.name} error:`, error);
         setAgents((prev) =>
-          prev.map((a) => (a.id === agent.id ? { ...a, status: "error" as AgentStatus, progress: 0 } : a))
+          prev.map((a) => (a.id === agent.id ? { 
+            ...a, 
+            status: "error" as AgentStatus, 
+            progress: 0,
+            processingStatus: 'error',
+            retryCount,
+            errorMessage,
+          } : a))
         );
-        addActivity(agent.name, `encountered an error`, "error");
+        addActivity(agent.name, `encountered an error: ${errorMessage}`, "error");
         broadcastAgentProgress(agent.id, agent.name, "error", 0);
       }
     },
     [addActivity, agentSettings, setAgents, broadcastAgentProgress, broadcastAgentResult]
+  );
+
+  const handleRetryAgent = useCallback(
+    async (agentId: string) => {
+      const agent = agents.find(a => a.id === agentId);
+      if (agent && currentMission) {
+        await executeAgentTask(agent, currentMission, true);
+      }
+    },
+    [agents, currentMission, executeAgentTask]
   );
 
   // This is called when user submits a command - opens agent selection dialog
@@ -337,7 +377,11 @@ const Index = () => {
                   task={agent.task}
                   delay={0.6 + index * 0.05}
                   isCustom={agent.isCustom}
+                  processingStatus={agent.processingStatus}
+                  retryCount={agent.retryCount}
+                  errorMessage={agent.errorMessage}
                   onSettings={() => setSettingsAgent({ id: agent.id, name: agent.name })}
+                  onRetry={() => handleRetryAgent(agent.id)}
                 />
               ))}
             </div>
