@@ -1,7 +1,8 @@
 import { motion } from "framer-motion";
-import { LucideIcon, Settings } from "lucide-react";
+import { LucideIcon, Settings, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { AgentProgressIndicator, AgentProcessingStatus } from "@/components/AgentProgressIndicator";
 
 export type AgentStatus = "idle" | "active" | "completed" | "error";
 
@@ -14,7 +15,11 @@ interface AgentCardProps {
   task?: string;
   delay?: number;
   isCustom?: boolean;
+  processingStatus?: AgentProcessingStatus;
+  retryCount?: number;
+  errorMessage?: string;
   onSettings?: () => void;
+  onRetry?: () => void;
 }
 
 const statusConfig = {
@@ -57,7 +62,11 @@ export const AgentCard = ({
   task,
   delay = 0,
   isCustom,
+  processingStatus = 'idle',
+  retryCount = 0,
+  errorMessage,
   onSettings,
+  onRetry,
 }: AgentCardProps) => {
   const config = statusConfig[status];
 
@@ -139,22 +148,14 @@ export const AgentCard = ({
         </motion.p>
       )}
 
-      {/* Progress bar */}
+      {/* Progress indicator with status */}
       {status === "active" && (
-        <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
-          <motion.div
-            className="h-full bg-gradient-to-r from-primary via-accent to-primary bg-[length:200%_100%]"
-            initial={{ width: 0 }}
-            animate={{ 
-              width: `${progress}%`,
-              backgroundPosition: ["0% 0%", "100% 0%", "0% 0%"],
-            }}
-            transition={{ 
-              width: { duration: 0.5 },
-              backgroundPosition: { duration: 2, repeat: Infinity, ease: "linear" }
-            }}
-          />
-        </div>
+        <AgentProgressIndicator
+          status={processingStatus}
+          progress={progress}
+          retryCount={retryCount}
+          maxRetries={3}
+        />
       )}
 
       {status === "completed" && (
@@ -167,6 +168,40 @@ export const AgentCard = ({
             style={{ transformOrigin: "left" }}
           />
         </div>
+      )}
+
+      {/* Error state with retry button */}
+      {status === "error" && (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-3"
+        >
+          <div className="flex items-center gap-2 text-xs text-destructive">
+            <span className="font-medium">Failed</span>
+            {errorMessage && (
+              <span className="text-destructive/70 truncate max-w-[150px]">
+                - {errorMessage.includes('503') ? 'Service busy' : 
+                   errorMessage.includes('Failed to fetch') ? 'Network error' : 
+                   'Error occurred'}
+              </span>
+            )}
+          </div>
+          {onRetry && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRetry();
+              }}
+              className="w-full border-destructive/30 hover:border-destructive/60 hover:bg-destructive/10 text-destructive"
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-2" />
+              Retry Agent
+            </Button>
+          )}
+        </motion.div>
       )}
 
       {/* Activity ripple effect for active agents */}

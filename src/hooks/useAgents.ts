@@ -16,6 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AgentStatus } from "@/components/AgentCard";
+import { AgentProcessingStatus } from "@/components/AgentProgressIndicator";
 
 export interface Agent {
   id: string;
@@ -29,6 +30,9 @@ export interface Agent {
   systemPrompt?: string;
   temperature?: number;
   maxTokens?: number;
+  processingStatus?: AgentProcessingStatus;
+  retryCount?: number;
+  errorMessage?: string;
 }
 
 export interface AgentSettings {
@@ -245,6 +249,9 @@ export const useAgents = (teamId?: string | null) => {
         status: "idle" as AgentStatus,
         progress: 0,
         task: undefined,
+        processingStatus: 'idle' as AgentProcessingStatus,
+        retryCount: 0,
+        errorMessage: undefined,
       }))
     );
   };
