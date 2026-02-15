@@ -1,8 +1,9 @@
 import { useState, useCallback } from "react";
-import { Plus, History, Users, BookTemplate } from "lucide-react";
+import { Plus, History, Users, BookTemplate, Layers, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { GridBackground } from "@/components/GridBackground";
+import { TopNav } from "@/components/TopNav";
 import { HeroSection } from "@/components/HeroSection";
 import { CommandInput } from "@/components/CommandInput";
 import { AgentCard, AgentStatus } from "@/components/AgentCard";
@@ -17,6 +18,7 @@ import { TeamDialog } from "@/components/TeamDialog";
 import { AgentTemplatesDialog } from "@/components/AgentTemplatesDialog";
 import { CreateTemplateDialog } from "@/components/CreateTemplateDialog";
 import { LiveCollaborationIndicator } from "@/components/LiveCollaborationIndicator";
+import { WorkflowVisualization } from "@/components/WorkflowVisualization";
 import { useAgents, defaultAgents, Agent, CustomAgentData } from "@/hooks/useAgents";
 import { useMissions, Mission } from "@/hooks/useMissions";
 import { useTeams } from "@/hooks/useTeams";
@@ -69,6 +71,7 @@ const Index = () => {
   const [settingsAgent, setSettingsAgent] = useState<{ id: string; name: string } | null>(null);
 
   const activeAgents = agents.filter((a) => a.status === "active").length;
+  const errorAgents = agents.filter((a) => a.status === "error");
 
   const addActivity = useCallback((agent: string, action: string, type: Activity["type"]) => {
     const newActivity: Activity = {
@@ -106,7 +109,6 @@ const Index = () => {
           prev.map((a) => {
             if (a.id === agent.id && a.status === "active" && a.progress < 85) {
               const newProgress = a.progress + Math.random() * 10;
-              // Update processing status based on progress
               let processingStatus: 'thinking' | 'generating' | 'retrying' = isRetry ? 'retrying' : 'thinking';
               if (newProgress > 40 && !isRetry) {
                 processingStatus = 'generating';
@@ -198,13 +200,19 @@ const Index = () => {
     [agents, currentMission, executeAgentTask]
   );
 
-  // This is called when user submits a command - opens agent selection dialog
+  const handleRetryAllFailed = useCallback(async () => {
+    if (!currentMission) return;
+    const failedAgents = agents.filter(a => a.status === "error");
+    for (const agent of failedAgents) {
+      executeAgentTask(agent, currentMission, true);
+    }
+  }, [agents, currentMission, executeAgentTask]);
+
   const handleCommandSubmit = useCallback((command: string) => {
     setPendingMission(command);
     setShowAgentSelection(true);
   }, []);
 
-  // This is called after user selects agents
   const handleRunMission = useCallback(
     async (selectedAgentIds: string[]) => {
       const command = pendingMission;
@@ -220,7 +228,6 @@ const Index = () => {
         (a) => selectedAgentIds.includes(a.id) && (agentSettings.get(a.id)?.isEnabled ?? true)
       );
 
-      // Broadcast mission start for real-time collaboration
       broadcastMissionStart(missionId, command, selectedAgentIds);
 
       const promises = agentsToActivate.map((agent, index) => {
@@ -238,7 +245,6 @@ const Index = () => {
       setTimeout(() => {
         setShowResults(true);
         toast({ title: "Mission Complete", description: `${agentsToActivate.length} agents have completed their tasks.` });
-        // Broadcast mission complete
         broadcastMissionComplete(results);
       }, 500);
     },
@@ -313,58 +319,84 @@ const Index = () => {
   return (
     <div className="min-h-screen relative">
       <GridBackground />
-      <div className="container mx-auto px-4 py-8 relative z-10">
+      <TopNav totalAgents={agents.length} activeAgents={activeAgents} isProcessing={isProcessing} />
+      
+      <div className="container mx-auto px-4 pt-24 pb-8 relative z-10">
         <HeroSection />
 
         {/* Team Context and Collaboration Indicator */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-4">
-          {currentTeam && (
+        {currentTeam && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
             <Badge variant="secondary" className="text-sm">
               <Users className="w-3 h-3 mr-1" />
               Team: {currentTeam.name}
             </Badge>
-          )}
-          {currentTeam && (
             <LiveCollaborationIndicator
               isCollaborating={isCollaborating}
               teamMembers={teamMembers}
               liveMission={liveMission}
               onToggle={toggleCollaboration}
             />
-          )}
-        </motion.div>
+          </motion.div>
+        )}
 
         {/* Action Buttons */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="flex justify-center gap-3 mb-8 flex-wrap">
-          <Button variant="outline" onClick={() => setShowTeamDialog(true)}>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="flex justify-center gap-2 mb-8 flex-wrap">
+          <Button variant="glass" size="sm" onClick={() => setShowTeamDialog(true)}>
             <Users className="w-4 h-4 mr-2" />
             Teams
           </Button>
-          <Button variant="outline" onClick={() => setShowHistory(true)}>
+          <Button variant="glass" size="sm" onClick={() => setShowHistory(true)}>
             <History className="w-4 h-4 mr-2" />
-            Mission History
+            History
           </Button>
-          <Button variant="outline" onClick={() => setShowTemplates(true)}>
+          <Button variant="glass" size="sm" onClick={() => setShowTemplates(true)}>
             <BookTemplate className="w-4 h-4 mr-2" />
             Templates
           </Button>
-          <Button variant="outline" onClick={() => setShowCreateAgent(true)}>
+          <Button variant="glass" size="sm" onClick={() => setShowCreateAgent(true)}>
             <Plus className="w-4 h-4 mr-2" />
-            Create Agent
+            New Agent
           </Button>
         </motion.div>
 
         <CommandInput onSubmit={handleCommandSubmit} isProcessing={isProcessing} />
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="mt-12">
+
+        {/* Workflow Pipeline Visualization */}
+        <div className="mt-8">
+          <WorkflowVisualization agents={agents} isProcessing={isProcessing} currentMission={currentMission} />
+        </div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="mt-8">
           <StatsPanel totalAgents={agents.length} activeAgents={activeAgents} completedTasks={completedTasks} avgTime="2.4s" />
         </motion.div>
 
+        {/* Retry All Failed Button */}
+        {errorAgents.length > 1 && currentMission && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex justify-center mt-6"
+          >
+            <Button variant="outline" onClick={handleRetryAllFailed} className="border-destructive/30 hover:border-destructive/60 text-destructive">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Retry All Failed ({errorAgents.length})
+            </Button>
+          </motion.div>
+        )}
+
         <div className="grid lg:grid-cols-3 gap-8 mt-8">
           <div className="lg:col-span-2">
-            <motion.h2 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="font-display text-xl font-semibold text-foreground mb-6 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-              Agent Workforce
-            </motion.h2>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="flex items-center justify-between mb-6">
+              <h2 className="font-display text-xl font-semibold text-foreground flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                Agent Workforce
+              </h2>
+              <Badge variant="outline" className="text-xs font-mono">
+                <Layers className="w-3 h-3 mr-1" />
+                {agents.length} agents
+              </Badge>
+            </motion.div>
             <div className="grid sm:grid-cols-2 gap-4">
               {agents.map((agent, index) => (
                 <AgentCard
@@ -375,7 +407,7 @@ const Index = () => {
                   status={agent.status}
                   progress={agent.progress}
                   task={agent.task}
-                  delay={0.6 + index * 0.05}
+                  delay={0.6 + index * 0.04}
                   isCustom={agent.isCustom}
                   processingStatus={agent.processingStatus}
                   retryCount={agent.retryCount}
@@ -391,8 +423,15 @@ const Index = () => {
           </motion.div>
         </div>
 
-        <motion.footer initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="mt-16 pb-8 text-center">
-          <p className="text-muted-foreground text-sm">AI Agent Workforce Platform • Powered by OpenAI GPT-4</p>
+        {/* Footer */}
+        <motion.footer initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="mt-20 pb-8 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+              <Layers className="w-3 h-3 text-primary-foreground" />
+            </div>
+            <span className="font-display text-sm font-bold tracking-tight text-foreground">NEXUS AI</span>
+          </div>
+          <p className="text-muted-foreground text-xs">Multi-Agent Orchestration Platform • Advanced AI Workforce</p>
         </motion.footer>
       </div>
 

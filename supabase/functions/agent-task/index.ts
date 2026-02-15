@@ -347,7 +347,14 @@ serve(async (req) => {
 
   try {
     if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+      console.error('LOVABLE_API_KEY is missing');
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: 'Backend configuration error. Please try again later.' 
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const { 
@@ -407,11 +414,25 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error in agent-task function:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    // Surface rate limit and payment errors clearly
+    let statusCode = 500;
+    let userMessage = errorMessage;
+    if (errorMessage.includes('429')) {
+      statusCode = 429;
+      userMessage = 'Rate limit exceeded. Please wait a moment and retry.';
+    } else if (errorMessage.includes('402')) {
+      statusCode = 402;
+      userMessage = 'AI credits exhausted. Please add credits to continue.';
+    } else if (errorMessage.includes('503') || errorMessage.includes('502')) {
+      userMessage = 'AI service temporarily unavailable. Retry in a few seconds.';
+    }
+    
     return new Response(JSON.stringify({ 
       success: false,
-      error: errorMessage 
+      error: userMessage 
     }), {
-      status: 500,
+      status: statusCode,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
