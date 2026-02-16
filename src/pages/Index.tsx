@@ -6,7 +6,7 @@ import { GridBackground } from "@/components/GridBackground";
 import { TopNav } from "@/components/TopNav";
 import { HeroSection } from "@/components/HeroSection";
 import { CommandInput } from "@/components/CommandInput";
-import { AgentCard, AgentStatus } from "@/components/AgentCard";
+import { AgentStatus } from "@/components/AgentCard";
 import { ActivityFeed, Activity } from "@/components/ActivityFeed";
 import { StatsPanel } from "@/components/StatsPanel";
 import { ResultsPanel, AgentResult, AgentOutput } from "@/components/ResultsPanel";
@@ -18,7 +18,7 @@ import { TeamDialog } from "@/components/TeamDialog";
 import { AgentTemplatesDialog } from "@/components/AgentTemplatesDialog";
 import { CreateTemplateDialog } from "@/components/CreateTemplateDialog";
 import { LiveCollaborationIndicator } from "@/components/LiveCollaborationIndicator";
-import { WorkflowVisualization } from "@/components/WorkflowVisualization";
+import { NodeCanvas } from "@/components/NodeCanvas";
 import { useAgents, defaultAgents, Agent, CustomAgentData } from "@/hooks/useAgents";
 import { useMissions, Mission } from "@/hooks/useMissions";
 import { useTeams } from "@/hooks/useTeams";
@@ -362,11 +362,7 @@ const Index = () => {
 
         <CommandInput onSubmit={handleCommandSubmit} isProcessing={isProcessing} />
 
-        {/* Workflow Pipeline Visualization */}
-        <div className="mt-8">
-          <WorkflowVisualization agents={agents} isProcessing={isProcessing} currentMission={currentMission} />
-        </div>
-
+        {/* Stats */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="mt-8">
           <StatsPanel totalAgents={agents.length} activeAgents={activeAgents} completedTasks={completedTasks} avgTime="2.4s" />
         </motion.div>
@@ -385,43 +381,33 @@ const Index = () => {
           </motion.div>
         )}
 
-        <div className="grid lg:grid-cols-3 gap-8 mt-8">
-          <div className="lg:col-span-2">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="flex items-center justify-between mb-6">
-              <h2 className="font-display text-xl font-semibold text-foreground flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                Agent Workforce
-              </h2>
-              <Badge variant="outline" className="text-xs font-mono">
-                <Layers className="w-3 h-3 mr-1" />
-                {agents.length} agents
-              </Badge>
-            </motion.div>
-            <div className="grid sm:grid-cols-2 gap-4">
-              {agents.map((agent, index) => (
-                <AgentCard
-                  key={agent.id}
-                  name={agent.name}
-                  role={agent.role}
-                  icon={agent.icon}
-                  status={agent.status}
-                  progress={agent.progress}
-                  task={agent.task}
-                  delay={0.6 + index * 0.04}
-                  isCustom={agent.isCustom}
-                  processingStatus={agent.processingStatus}
-                  retryCount={agent.retryCount}
-                  errorMessage={agent.errorMessage}
-                  onSettings={() => setSettingsAgent({ id: agent.id, name: agent.name })}
-                  onRetry={() => handleRetryAgent(agent.id)}
-                />
-              ))}
-            </div>
+        {/* Node Canvas - Visual Agent Workforce */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }} className="mt-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-display text-xl font-semibold text-foreground flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+              Agent Workforce
+            </h2>
+            <Badge variant="outline" className="text-xs font-mono">
+              <Layers className="w-3 h-3 mr-1" />
+              {agents.length} agents
+            </Badge>
           </div>
-          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.7 }}>
-            <ActivityFeed activities={activities} />
-          </motion.div>
-        </div>
+          <div className="glass rounded-2xl border border-border/50 overflow-hidden">
+            <NodeCanvas
+              agents={agents}
+              isProcessing={isProcessing}
+              currentMission={currentMission}
+              onSettings={(agent) => setSettingsAgent(agent)}
+              onRetry={handleRetryAgent}
+            />
+          </div>
+        </motion.div>
+
+        {/* Activity Feed */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }} className="mt-8">
+          <ActivityFeed activities={activities} />
+        </motion.div>
 
         {/* Footer */}
         <motion.footer initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="mt-20 pb-8 text-center">
